@@ -16,4 +16,7 @@ set(COUNTER_STRIKE_SHARP_LINK_LIBRARIES
     dynload_s
     dyncall_s
     dyncallback_s
+    distorm
+    funchook-static
+    dynohook
 )

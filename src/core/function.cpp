@@ -34,10 +34,22 @@
 #include "core/log.h"
 #include "dyncall/dyncall/dyncall.h"
 
-#include <cassert>
+#include <memory>
 #include <thread>
 
+#include "pch.h"
+#include "dynohook/core.h"
+#include "dynohook/manager.h"
+
+#ifdef _WIN32
+#include "dynohook/conventions/x64/x64MsFastcall.h"
+#else
+#include "dynohook/conventions/x64/x64SystemVcall.h"
+#endif
+
 namespace counterstrikesharp {
+
+std::map<dyno::Hook*, ValveFunction*> g_HookMap;
 
 // ============================================================================
 // >> GetDynCallConvention
@@ -92,7 +104,6 @@ ValveFunction::ValveFunction(void* ulAddr, Convention_t callingConvention, DataT
 
 ValveFunction::~ValveFunction()
 {
-    m_hook.reset();
     if (m_precallback != nullptr)
     {
         globals::callbackManager.ReleaseCallback(m_precallback);
@@ -121,6 +132,7 @@ void ValveFunction::Call(ScriptContext& script_context, int offset, bool bypass)
 {
     if (!IsCallable()) return;
 
+    // A call VM per call keeps nested and re-entrant calls from clobbering each other's arguments.
     auto callVM = std::unique_ptr<DCCallVM, decltype(&dcFree)>(dcNewCallVM(4096), dcFree);
     if (!callVM) throw std::bad_alloc();
     auto* g_pCallVM = callVM.get();
@@ -184,9 +196,9 @@ void ValveFunction::Call(ScriptContext& script_context, int offset, bool bypass)
     }
 
     void* m_target = m_ulAddr;
-    if (bypass)
+    if (bypass && m_trampoline)
     {
-        m_target = KHook::FindOriginal(m_ulAddr);
+        m_target = m_trampoline;
     }
 
     switch (m_eReturnType)
@@ -245,63 +257,197 @@ void ValveFunction::Call(ScriptContext& script_context, int offset, bool bypass)
     }
 }
 
-KHook::Action ValveFunction::DispatchHook(bool post, DynamicHookContext& hook)
+// Each invocation owns its script context, so nested hooks do not reset the outer callback's argument and result buffers.
+HookResult RunHookCallback(ScriptCallback* callback, dyno::Hook& hook, HookResult maxResult)
 {
-    // Managed native access is restricted to the game thread. Do not enter the
-    // CLR callback path from an engine worker thread.
-    if (globals::gameThreadId != std::this_thread::get_id()) return KHook::Action::Ignore;
-    if (post && KHook::WasOriginalFunctionSkipped()) return KHook::Action::Ignore;
-
-    auto* callback = post ? m_postcallback : m_precallback;
-    auto nativeCallback = m_callback;
-    HookResult result = HookResult::Continue;
-    if (nativeCallback) result = (*nativeCallback)(post ? HookMode::Post : HookMode::Pre, hook);
-
-    // Each invocation owns its script context. Nested calls must not reset the
-    // outer callback's argument and result buffers.
-    auto functions = callback ? callback->GetFunctions() : std::vector<CallbackT>{};
-    for (auto function : functions)
+    auto functions = callback->GetFunctions();
+    for (auto fnMethodToCall : functions)
     {
-        if (result >= HookResult::Stop) break;
-        if (!function) continue;
+        if (maxResult >= HookResult::Stop) break;
+        if (!fnMethodToCall) continue;
+
         fxNativeContext raw{};
         ScriptContextRaw context(raw);
         context.Reset();
         context.Push(&hook);
-        function(&raw);
-        result = (std::max)(result, context.GetResult<HookResult>());
+        fnMethodToCall(&raw);
+
+        maxResult = (std::max)(context.GetResult<HookResult>(), maxResult);
     }
-    return result >= HookResult::Handled ? KHook::Action::Supersede : KHook::Action::Ignore;
+
+    return maxResult;
 }
 
-void ValveFunction::EnsureHook()
+dyno::ReturnAction HookHandler(dyno::HookType hookType, dyno::Hook& hook)
 {
-    if (!m_hook)
-        m_hook = std::make_unique<DynamicHook>(m_ulAddr, m_Args, m_eReturnType, [this](bool post, DynamicHookContext& hook) {
-            return DispatchHook(post, hook);
-        });
+    // Managed native access is restricted to the game thread. Do not enter the
+    // CLR callback path from an engine worker thread.
+    if (globals::gameThreadId != std::this_thread::get_id()) return dyno::ReturnAction::Ignored;
+
+    auto* vf = g_HookMap[&hook];
+
+    if (hookType == dyno::HookType::Pre)
+    {
+        auto* callback = vf->m_precallback;
+        auto global_callback = vf->m_callback;
+        HookResult maxResult = HookResult::Continue;
+
+        if (global_callback.has_value())
+        {
+            HookResult result = global_callback.value()(HookMode::Pre, hook);
+            maxResult = (std::max)(result, maxResult);
+        }
+
+        if (callback != nullptr)
+        {
+            maxResult = RunHookCallback(callback, hook, maxResult);
+        }
+
+        // Store the pre-hook result for the post-hook to check
+        vf->m_lastPreHookResult.push_back(maxResult);
+
+        if (maxResult >= HookResult::Handled)
+        {
+            return dyno::ReturnAction::Supercede;
+        }
+
+        return dyno::ReturnAction::Ignored;
+    }
+
+    // Post hook
+    HookResult preResult = HookResult::Continue;
+    if (!vf->m_lastPreHookResult.empty())
+    {
+        preResult = vf->m_lastPreHookResult.back();
+        vf->m_lastPreHookResult.pop_back();
+    }
+
+    if (preResult >= HookResult::Handled)
+    {
+        return dyno::ReturnAction::Ignored;
+    }
+
+    auto* callback = vf->m_postcallback;
+    auto global_callback = vf->m_callback;
+
+    if (callback == nullptr && !global_callback.has_value())
+    {
+        return dyno::ReturnAction::Ignored;
+    }
+
+    if (global_callback.has_value())
+    {
+        HookResult result = global_callback.value()(HookMode::Post, hook);
+        if (result >= HookResult::Handled)
+        {
+            return dyno::ReturnAction::Supercede;
+        }
+    }
+
+    if (callback == nullptr)
+    {
+        return dyno::ReturnAction::Ignored;
+    }
+
+    HookResult maxResult = RunHookCallback(callback, hook, HookResult::Continue);
+
+    if (maxResult >= HookResult::Handled)
+    {
+        return dyno::ReturnAction::Supercede;
+    }
+
+    return dyno::ReturnAction::Ignored;
 }
 
-void ValveFunction::AddHook(const std::function<HookResult(HookMode, DynamicHookContext&)>& callback)
+std::vector<dyno::DataObject> ConvertArgsToDynoHook(const std::vector<DataType_t>& dataTypes)
 {
-    EnsureHook();
+    std::vector<dyno::DataObject> converted;
+    converted.reserve(dataTypes.size());
+
+    for (DataType_t dt : dataTypes)
+    {
+        converted.push_back(dyno::DataObject(static_cast<dyno::DataType>(dt)));
+    }
+
+    return converted;
+}
+
+void ValveFunction::AddHook(const std::function<HookResult(HookMode, dyno::Hook&)>& callback)
+{
+    dyno::HookManager& manager = dyno::HookManager::Get();
+    dyno::Hook* hook = manager.hook((void*)m_ulAddr, [this] {
+#ifdef _WIN32
+        return new dyno::x64MsFastcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#else
+        return new dyno::x64SystemVcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#endif
+    });
+    g_HookMap[hook] = this;
+    hook->addCallback(dyno::HookType::Post, (dyno::HookHandler*)&HookHandler);
+    hook->addCallback(dyno::HookType::Pre, (dyno::HookHandler*)&HookHandler);
+    m_trampoline = hook->getOriginal();
     m_callback = callback;
 }
 
 void ValveFunction::AddHook(CallbackT callable, bool post)
 {
-    EnsureHook();
-    auto*& callback = post ? m_postcallback : m_precallback;
-    if (!callback) callback = globals::callbackManager.CreateCallback("");
-    callback->AddListener(callable);
-}
+    dyno::HookManager& manager = dyno::HookManager::Get();
+    dyno::Hook* hook = manager.hook((void*)m_ulAddr, [this] {
+#ifdef _WIN32
+        return new dyno::x64MsFastcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#else
+        return new dyno::x64SystemVcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#endif
+    });
+    g_HookMap[hook] = this;
+    hook->addCallback(dyno::HookType::Post, (dyno::HookHandler*)&HookHandler);
+    hook->addCallback(dyno::HookType::Pre, (dyno::HookHandler*)&HookHandler);
+    m_trampoline = hook->getOriginal();
 
+    if (post)
+    {
+        if (m_postcallback == nullptr)
+        {
+            m_postcallback = globals::callbackManager.CreateCallback("");
+        }
+        m_postcallback->AddListener(callable);
+    }
+    else
+    {
+        if (m_precallback == nullptr)
+        {
+            m_precallback = globals::callbackManager.CreateCallback("");
+        }
+        m_precallback->AddListener(callable);
+    }
+}
 void ValveFunction::RemoveHook(CallbackT callable, bool post)
 {
-    auto* callback = post ? m_postcallback : m_precallback;
-    if (callback) callback->RemoveListener(callable);
-    if ((!m_precallback || !m_precallback->GetFunctionCount()) && (!m_postcallback || !m_postcallback->GetFunctionCount()) && !m_callback)
-        m_hook.reset();
+    dyno::HookManager& manager = dyno::HookManager::Get();
+    dyno::Hook* hook = manager.hook((void*)m_ulAddr, [this] {
+#ifdef _WIN32
+        return new dyno::x64MsFastcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#else
+        return new dyno::x64SystemVcall(ConvertArgsToDynoHook(m_Args), static_cast<dyno::DataType>(this->m_eReturnType));
+#endif
+    });
+    g_HookMap[hook] = this;
+    m_trampoline = nullptr;
+
+    if (post)
+    {
+        if (m_postcallback != nullptr)
+        {
+            m_postcallback->RemoveListener(callable);
+        }
+    }
+    else
+    {
+        if (m_precallback != nullptr)
+        {
+            m_precallback->RemoveListener(callable);
+        }
+    }
 }
 
 } // namespace counterstrikesharp

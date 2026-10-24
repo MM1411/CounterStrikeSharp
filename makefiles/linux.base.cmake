@@ -14,7 +14,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-offsetof -Wno-reorder")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpmath=sse -msse -fno-strict-aliasing")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -v -fvisibility=hidden -fvisibility-inlines-hidden")
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs=libprotobuf.a:dyncall_s.a:dyncallback_s.a:dynload_s.a:spdlog.a")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs=libprotobuf.a:dyncall_s.a:dyncallback_s.a:dynload_s.a:spdlog.a:libdistorm.a:libfunchook.a:libdynohook.a")
 
 set(
     COUNTER_STRIKE_SHARP_LINK_LIBRARIES
@@ -25,4 +25,7 @@ set(
     dynload_s
     dyncall_s
     dyncallback_s
+    distorm
+    funchook-static
+    dynohook
 )

@@ -23,6 +23,8 @@
 #include "core/managers/player_manager.h"
 #include "scripting/callback_manager.h"
 
+SH_DECL_HOOK3(IVEngineServer2, SetClientListening, SH_NOATTRIB, 0, bool, CPlayerSlot, CPlayerSlot, bool);
+
 namespace counterstrikesharp {
 
 VoiceManager::VoiceManager() {}
@@ -31,12 +33,15 @@ VoiceManager::~VoiceManager() {}
 
 void VoiceManager::OnAllInitialized()
 {
-    m_hooks.Add(&IVEngineServer2::SetClientListening, globals::engine, this, &VoiceManager::SetClientListening, nullptr);
+    SH_ADD_HOOK(IVEngineServer2, SetClientListening, globals::engine, SH_MEMBER(this, &VoiceManager::SetClientListening), false);
 }
 
-void VoiceManager::OnShutdown() { m_hooks.Clear(); }
+void VoiceManager::OnShutdown()
+{
+    SH_REMOVE_HOOK(IVEngineServer2, SetClientListening, globals::engine, SH_MEMBER(this, &VoiceManager::SetClientListening), false);
+}
 
-KHook::Return<bool> VoiceManager::SetClientListening(IVEngineServer2* hookThis, CPlayerSlot iReceiver, CPlayerSlot iSender, bool bListen)
+bool VoiceManager::SetClientListening(CPlayerSlot iReceiver, CPlayerSlot iSender, bool bListen)
 {
     auto pReceiver = globals::playerManager.GetPlayerBySlot(iReceiver.Get());
     auto pSender = globals::playerManager.GetPlayerBySlot(iSender.Get());
@@ -49,31 +54,26 @@ KHook::Return<bool> VoiceManager::SetClientListening(IVEngineServer2* hookThis, 
 
         if (pReceiver->m_selfMutes->Get(iSender.Get()))
         {
-            return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                 iReceiver, iSender, false);
+            RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening, (iReceiver, iSender, false));
         }
 
         if (senderFlags & Speak_Muted)
         {
-            return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                 iReceiver, iSender, false);
+            RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening, (iReceiver, iSender, false));
         }
 
         if (listenOverride == Listen_Mute)
         {
-            return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                 iReceiver, iSender, false);
+            RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening, (iReceiver, iSender, false));
         }
         else if (listenOverride == Listen_Hear)
         {
-            return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                 iReceiver, iSender, true);
+            RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening, (iReceiver, iSender, true));
         }
 
         if ((senderFlags & Speak_All) || (receiverFlags & Speak_ListenAll))
         {
-            return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                 iReceiver, iSender, true);
+            RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening, (iReceiver, iSender, true));
         }
 
         if ((senderFlags & Speak_Team) || (receiverFlags & Speak_ListenTeam))
@@ -91,13 +91,13 @@ KHook::Return<bool> VoiceManager::SetClientListening(IVEngineServer2* hookThis, 
 
                 auto senderTeam = *reinterpret_cast<std::add_pointer_t<unsigned int>>((uintptr_t)(senderController) + m_key.offset);
 
-                return KHook::Recall(&IVEngineServer2::SetClientListening, KHook::Return<bool>{ KHook::Action::Ignore, bListen }, hookThis,
-                                     iReceiver, iSender, receiverTeam == senderTeam);
+                RETURN_META_VALUE_NEWPARAMS(MRES_IGNORED, bListen, &IVEngineServer2::SetClientListening,
+                                            (iReceiver, iSender, receiverTeam == senderTeam));
             }
         }
     }
 
-    return { KHook::Action::Ignore, bListen };
+    RETURN_META_VALUE(MRES_IGNORED, bListen);
 }
 
 void VoiceManager::OnClientCommand(CPlayerSlot slot, const CCommand& args)

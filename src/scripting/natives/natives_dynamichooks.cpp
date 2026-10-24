@@ -1,4 +1,3 @@
-#include "core/dynamic_hook.h"
 /*
  *  This file is part of CounterStrikeSharp.
  *  CounterStrikeSharp is free software: you can redistribute it and/or modify
@@ -20,13 +19,15 @@
 #include "scripting/autonative.h"
 #include "scripting/script_engine.h"
 #include "core/function.h"
-#include <cassert>
+#include "pch.h"
+#include "dynohook/core.h"
+#include "dynohook/manager.h"
 
 namespace counterstrikesharp {
 
 void DHookGetReturn(ScriptContext& script_context)
 {
-    auto hook = script_context.GetArgument<DynamicHookContext*>(0);
+    auto hook = script_context.GetArgument<dyno::Hook*>(0);
     auto dataType = script_context.GetArgument<DataType_t>(1);
     if (hook == nullptr)
     {
@@ -89,7 +90,7 @@ void DHookGetReturn(ScriptContext& script_context)
 
 void DHookSetReturn(ScriptContext& script_context)
 {
-    auto hook = script_context.GetArgument<DynamicHookContext*>(0);
+    auto hook = script_context.GetArgument<dyno::Hook*>(0);
     auto dataType = script_context.GetArgument<DataType_t>(1);
     if (hook == nullptr)
     {
@@ -154,7 +155,7 @@ void DHookSetReturn(ScriptContext& script_context)
 
 void DHookGetParam(ScriptContext& script_context)
 {
-    auto hook = script_context.GetArgument<DynamicHookContext*>(0);
+    auto hook = script_context.GetArgument<dyno::Hook*>(0);
     auto dataType = script_context.GetArgument<DataType_t>(1);
     auto paramIndex = script_context.GetArgument<int>(2);
     if (hook == nullptr)
@@ -218,7 +219,7 @@ void DHookGetParam(ScriptContext& script_context)
 
 void DHookSetParam(ScriptContext& script_context)
 {
-    auto hook = script_context.GetArgument<DynamicHookContext*>(0);
+    auto hook = script_context.GetArgument<dyno::Hook*>(0);
     auto dataType = script_context.GetArgument<DataType_t>(1);
     auto paramIndex = script_context.GetArgument<int>(2);
     if (hook == nullptr)

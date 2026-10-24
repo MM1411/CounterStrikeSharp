@@ -42,7 +42,6 @@ class CUtlString;
 
 #include "core/global_listener.h"
 #include "core/globals.h"
-#include "core/hooks.h"
 #include "scripting/script_engine.h"
 
 namespace counterstrikesharp {
@@ -78,9 +77,6 @@ namespace counterstrikesharp {
 
 class EventManager : public IGameEventListener2, public GlobalClass
 {
-  private:
-    HookSet m_hooks;
-
   public:
     EventManager();
     ~EventManager() override;
@@ -99,10 +95,13 @@ class EventManager : public IGameEventListener2, public GlobalClass
     bool HookEvent(const char* szName, CallbackT fnCallback, bool bPost);
 
   private:
-    KHook::Return<bool> OnFireEvent(IGameEventManager2* hookThis, IGameEvent* pEvent, bool bDontBroadcast);
+    bool OnFireEvent(IGameEvent* pEvent, bool bDontBroadcast);
+    bool OnFireEventPost(IGameEvent* pEvent, bool bDontBroadcast);
 
     std::map<std::string, EventHook*> m_hooksMap;
 
+    std::stack<EventHook*> m_EventStack;
+    std::stack<IGameEvent*> m_EventCopies;
     std::stack<PendingEventHook> m_PendingHooks;
 };
 

@@ -34,9 +34,33 @@
 #include "scripting/script_engine.h"
 #include <map>
 #include <optional>
-#include "core/dynamic_hook.h"
+
+namespace dyno {
+class Hook;
+} // namespace dyno
 
 namespace counterstrikesharp {
+
+enum DataType_t
+{
+    DATA_TYPE_VOID,
+    DATA_TYPE_BOOL,
+    DATA_TYPE_CHAR,
+    DATA_TYPE_UCHAR,
+    DATA_TYPE_SHORT,
+    DATA_TYPE_USHORT,
+    DATA_TYPE_INT,
+    DATA_TYPE_UINT,
+    DATA_TYPE_LONG,
+    DATA_TYPE_ULONG,
+    DATA_TYPE_LONG_LONG,
+    DATA_TYPE_ULONG_LONG,
+    DATA_TYPE_FLOAT,
+    DATA_TYPE_DOUBLE,
+    DATA_TYPE_POINTER,
+    DATA_TYPE_STRING,
+    DATA_TYPE_VARIANT
+};
 
 enum Protection_t
 {
@@ -71,11 +95,12 @@ class ValveFunction
     void SetSignature(const char* signature) { m_signature = signature; }
 
     void Call(ScriptContext& args, int offset = 0, bool bypass = false);
-    void AddHook(const std::function<HookResult(HookMode, DynamicHookContext&)>& callback);
+    void AddHook(const std::function<HookResult(HookMode, dyno::Hook&)>& callback);
     void AddHook(CallbackT callable, bool post);
     void RemoveHook(CallbackT callable, bool post);
 
     void* m_ulAddr;
+    void* m_trampoline;
     std::vector<DataType_t> m_Args;
     DataType_t m_eReturnType;
 
@@ -89,11 +114,9 @@ class ValveFunction
     const char* m_signature;
     ScriptCallback* m_precallback = nullptr;
     ScriptCallback* m_postcallback = nullptr;
-    std::optional<std::function<HookResult(HookMode, DynamicHookContext&)>> m_callback;
+    std::optional<std::function<HookResult(HookMode, dyno::Hook&)>> m_callback;
 
-    std::unique_ptr<DynamicHook> m_hook;
-    void EnsureHook();
-    KHook::Action DispatchHook(bool post, DynamicHookContext& hook);
+    std::vector<HookResult> m_lastPreHookResult;
 };
 
 } // namespace counterstrikesharp

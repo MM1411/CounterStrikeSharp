@@ -22,10 +22,23 @@
 #include "core/recipientfilters.h"
 #include "core/cs2_sdk/entity/dump.h"
 
+#include <funchook.h>
 #include <vector>
 
 #include <engine2/ivengineserver2.h>
 #include "scripting/callback_manager.h"
+
+SH_DECL_MANUALHOOK7_void(CheckTransmit,
+                         0,
+                         0,
+                         0,
+                         CCheckTransmitInfoHack**,
+                         uint32_t,
+                         CBitVec<16384>&,
+                         CBitVec<16384>&,
+                         const Entity2Networkable_t**,
+                         const uint16*,
+                         uint32_t);
 
 namespace counterstrikesharp {
 
@@ -44,12 +57,13 @@ CCheckTransmitInfoList::CCheckTransmitInfoList(CCheckTransmitInfoHack** pInfoInf
 #define CALL_CONV CONV_CDECL
 #endif
 
+int g_iCheckTransmit = -1;
+
 void EntityManager::OnAllInitialized()
 {
-    m_hooks.AddGlobalIndex<ISource2GameEntities, void, CCheckTransmitInfoHack**, uint32_t, CBitVec<16384>&, CBitVec<16384>&,
-                           const Entity2Networkable_t**, const uint16*, uint32_t>(
-        globals::gameConfig->GetOffset("ISource2GameEntities::CheckTransmit"), *(void***)globals::gameEntities, this, nullptr,
-        &EntityManager::CheckTransmit);
+    SH_MANUALHOOK_RECONFIGURE(CheckTransmit, globals::gameConfig->GetOffset("ISource2GameEntities::CheckTransmit"), 0, 0);
+    g_iCheckTransmit =
+        SH_ADD_MANUALDVPHOOK(CheckTransmit, *(void**)globals::gameEntities, SH_MEMBER(this, &EntityManager::CheckTransmit), true);
     check_transmit = globals::callbackManager.CreateCallback("CheckTransmit");
     on_entity_spawned_callback = globals::callbackManager.CreateCallback("OnEntitySpawned");
     on_entity_created_callback = globals::callbackManager.CreateCallback("OnEntityCreated");
@@ -114,14 +128,15 @@ void EntityManager::OnAllInitialized()
         new ValveFunction((void*)CBaseEntity_TakeDamageOld, CALL_CONV,
                           std::vector<DataType_t>{ DATA_TYPE_POINTER, DATA_TYPE_POINTER, DATA_TYPE_POINTER }, DATA_TYPE_LONG_LONG);
 
-    m_hooks.AddFunction(reinterpret_cast<void*>(m_pFireOutputInternal), &DetourFireOutputInternal);
+    auto m_hook = funchook_create();
+    funchook_prepare(m_hook, (void**)&m_pFireOutputInternal, (void*)&DetourFireOutputInternal);
+    funchook_install(m_hook, 0);
 
     // Listener is added in ServerStartup as entity system is not initialised at this stage.
 }
 
 void EntityManager::OnShutdown()
 {
-    m_hooks.Clear();
     globals::callbackManager.ReleaseCallback(on_entity_spawned_callback);
     globals::callbackManager.ReleaseCallback(on_entity_created_callback);
     globals::callbackManager.ReleaseCallback(on_entity_deleted_callback);
@@ -132,7 +147,8 @@ void EntityManager::OnShutdown()
     globals::callbackManager.ReleaseCallback(on_player_take_damage_post_callback);
 
     globals::callbackManager.ReleaseCallback(check_transmit);
-    if (globals::entitySystem) globals::entitySystem->RemoveListenerEntity(&entityListener);
+    globals::entitySystem->RemoveListenerEntity(&entityListener);
+    SH_REMOVE_HOOK_ID(g_iCheckTransmit);
 }
 
 void CEntityListener::OnEntitySpawned(CEntityInstance* pEntity)
@@ -219,14 +235,13 @@ void EntityManager::UnhookEntityOutput(const char* szClassname, const char* szOu
     }
 }
 
-KHook::Return<void> EntityManager::CheckTransmit(ISource2GameEntities* hookThis,
-                                                 CCheckTransmitInfoHack** ppInfoList,
-                                                 uint32_t nInfoCount,
-                                                 CBitVec<16384>& unionTransmitEdicts1,
-                                                 CBitVec<16384>& unionTransmitEdicts2,
-                                                 const Entity2Networkable_t** pNetworkables,
-                                                 const uint16* pEntityIndicies,
-                                                 uint32_t nEntities)
+void EntityManager::CheckTransmit(CCheckTransmitInfoHack** ppInfoList,
+                                  uint32_t nInfoCount,
+                                  CBitVec<16384>& unionTransmitEdicts1,
+                                  CBitVec<16384>& unionTransmitEdicts2,
+                                  const Entity2Networkable_t** pNetworkables,
+                                  const uint16* pEntityIndicies,
+                                  uint32_t nEntities)
 {
     // VPROF_BUDGET(m_profile_name.c_str(), "CS# CheckTransmit");
 
@@ -242,7 +257,6 @@ KHook::Return<void> EntityManager::CheckTransmit(ISource2GameEntities* hookThis,
 
         delete infoList;
     }
-    return { KHook::Action::Ignore };
 }
 
 int64 DetourCBaseEntity_TakeDamageOld(CBaseEntity* pThis, CTakeDamageInfo* pInfo, CTakeDamageResult* pResult)
@@ -349,13 +363,13 @@ void EntityManager::Hook_OnTakeDamage_Alive_Post(CBaseEntity* entity, CTakeDamag
     }
 }
 
-KHook::Return<void> DetourFireOutputInternal(CEntityIOOutput* const pThis,
-                                             CEntityInstance* pActivator,
-                                             CEntityInstance* pCaller,
-                                             const CVariant* const value,
-                                             float flDelay,
-                                             void* unk1,
-                                             char* unk2)
+void DetourFireOutputInternal(CEntityIOOutput* const pThis,
+                              CEntityInstance* pActivator,
+                              CEntityInstance* pCaller,
+                              const CVariant* const value,
+                              float flDelay,
+                              void* unk1,
+                              char* unk2)
 {
     std::vector vecSearchKeys{ OutputKey_t("*", pThis->m_pDesc->m_pName), OutputKey_t("*", "*") };
 
@@ -408,7 +422,7 @@ KHook::Return<void> DetourFireOutputInternal(CEntityIOOutput* const pThis,
 
                 if (thisResult >= HookResult::Stop)
                 {
-                    return { KHook::Action::Supersede };
+                    return;
                 }
 
                 if (thisResult > result)
@@ -421,11 +435,10 @@ KHook::Return<void> DetourFireOutputInternal(CEntityIOOutput* const pThis,
 
     if (result >= HookResult::Handled)
     {
-        return { KHook::Action::Supersede };
+        return;
     }
 
-    KHook::Recall(m_pFireOutputInternal, KHook::Return<void>{ KHook::Action::Ignore }, pThis, pActivator, pCaller, value, flDelay, unk1,
-                  unk2);
+    m_pFireOutputInternal(pThis, pActivator, pCaller, value, flDelay, unk1, unk2);
 
     for (auto pCallbackPair : vecCallbackPairs)
     {
@@ -441,7 +454,6 @@ KHook::Return<void> DetourFireOutputInternal(CEntityIOOutput* const pThis,
             pCallbackPair->post->Execute();
         }
     }
-    return { KHook::Action::Ignore };
 }
 
 SndOpEventGuid_t EntityEmitSoundFilter(CRecipientFilter& filter, uint32 ent, const char* pszSound, float flVolume, float flPitch)
