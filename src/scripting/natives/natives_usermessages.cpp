@@ -740,8 +740,8 @@ static void UserMessageSend(ScriptContext& scriptContext)
 
     // This is for calling send in a UM hook, if calling normal send using the UM instance from the UM hook, it will cause an inifinite
     // loop, then crashing the server
-    static void (IGameEventSystem::*PostEventAbstract)(CSplitScreenSlot, bool, IRecipientFilter*, NetMessageInfo_t*,
-                                                       const CNetMessage*, unsigned long) = &IGameEventSystem::PostEventAbstract;
+    static void (IGameEventSystem::*PostEventAbstract)(CSplitScreenSlot, bool, IRecipientFilter*, NetMessageInfo_t*, const CNetMessage*,
+                                                       unsigned long) = &IGameEventSystem::PostEventAbstract;
 
     if (message->IsManuallyAllocated())
         globals::gameEventSystem->PostEventAbstract(0, false, &filter, message->GetSerializableMessage(), message->GetProtobufMessage(), 0);
