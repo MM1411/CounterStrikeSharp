@@ -35,7 +35,7 @@ SH_DECL_HOOK8_void(IGameEventSystem,
                    bool,
                    int,
                    const uint64*,
-                   INetworkMessageInternal*,
+                   NetMessageInfo_t*,
                    const CNetMessage*,
                    unsigned long,
                    NetChannelBufType_t)
@@ -156,7 +156,7 @@ SH_DECL_HOOK8_void(IGameEventSystem,
     }
 
     void UserMessageManager::Hook_PostEvent(CSplitScreenSlot nSlot, bool bLocalOnly, int nClientCount, const uint64* clients,
-                                            INetworkMessageInternal* pEvent, const CNetMessage* pData, unsigned long nSize,
+                                            NetMessageInfo_t* pEvent, const CNetMessage* pData, unsigned long nSize,
                                             NetChannelBufType_t bufType)
     {
         auto message = UserMessage(pEvent, pData, nClientCount, const_cast<uint64*>(clients));

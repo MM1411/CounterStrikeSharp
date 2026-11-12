@@ -132,7 +132,7 @@ class PlayerManager : public GlobalClass
     OnClientConnect(CPlayerSlot slot, const char* pszName, uint64 xuid, const char* pszNetworkID, bool unk1, CBufferString* pRejectReason);
     bool OnClientConnect_Post(
         CPlayerSlot slot, const char* pszName, uint64 xuid, const char* pszNetworkID, bool unk1, CBufferString* pRejectReason);
-    void OnClientPutInServer(CPlayerSlot slot, char const* pszName, int type, uint64 xuid);
+    void OnClientPutInServer(CPlayerSlot slot, char const* pszName, ClientPutInServerType_t type, uint64 xuid);
     void
     OnClientDisconnect(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID);
     void OnClientDisconnect_Post(

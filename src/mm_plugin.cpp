@@ -16,6 +16,7 @@
 
 #include <cstdio>
 
+#include "convar.h"
 #include "core/detours.h"
 #include "core/coreconfig.h"
 #include "core/game_system.h"
@@ -67,10 +68,6 @@ DLL_EXPORT void InvokeNative(counterstrikesharp::fxNativeContext& context)
     counterstrikesharp::ScriptEngine::InvokeNative(context);
 }
 
-class GameSessionConfiguration_t
-{
-};
-
 PLUGIN_EXPOSE(CounterStrikeSharpMMPlugin, counterstrikesharp::gPlugin);
 
 namespace counterstrikesharp {
@@ -83,11 +80,6 @@ SH_DECL_HOOK1(IEngineServiceMgr, FindService, SH_NOATTRIB, 0, IEngineService*, c
 SH_DECL_HOOK2(IGameEventManager2, LoadEventsFromFile, SH_NOATTRIB, 0, int, const char*, bool);
 
 CounterStrikeSharpMMPlugin gPlugin;
-
-#if 0
-// Currently unavailable, requires hl2sdk work!
-ConVar sample_cvar("sample_cvar", "42", 0);
-#endif
 
 bool CounterStrikeSharpMMPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late)
 {

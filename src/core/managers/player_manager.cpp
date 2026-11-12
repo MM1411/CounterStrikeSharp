@@ -52,7 +52,7 @@ SH_DECL_HOOK5_void(
     IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
 
 SH_DECL_HOOK1_void(IServerGameClients, ClientVoice, SH_NOATTRIB, 0, CPlayerSlot);
-SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, int, uint64);
+SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, ClientPutInServerType_t, uint64);
 SH_DECL_HOOK1_void(IServerGameClients, ClientSettingsChanged, SH_NOATTRIB, 0, CPlayerSlot);
 SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0, CPlayerSlot, const char*, uint64, const char*, const char*, bool);
 SH_DECL_HOOK6(IServerGameClients, ClientConnect, SH_NOATTRIB, 0, bool, CPlayerSlot, const char*, uint64, const char*, bool, CBufferString*);
@@ -185,7 +185,7 @@ bool PlayerManager::OnClientConnect_Post(
     return true;
 }
 
-void PlayerManager::OnClientPutInServer(CPlayerSlot slot, char const* pszName, int type, uint64 xuid)
+void PlayerManager::OnClientPutInServer(CPlayerSlot slot, char const* pszName, ClientPutInServerType_t type, uint64 xuid)
 {
     CSSHARP_CORE_TRACE("[PlayerManager][OnClientPutInServer] - {}, {}, {}", slot.Get(), pszName, type);
 
